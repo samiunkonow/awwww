@@ -71,18 +71,21 @@ class MusicBot(commands.Bot):
                 
                 self.voice_client = await channel.connect()
 
-            self.voice_client.play(discord.FFmpegPCMAudio(url, **ffmpeg_options), after=lambda e: self.check_queue(e))
+            def after_playing(error):
+                if error:
+                    print(f"Error en reproducción: {error}")
+                asyncio.create_task(self.check_queue())
+
+            self.voice_client.play(discord.FFmpegPCMAudio(url, **ffmpeg_options), after=after_playing)
 
             while self.voice_client.is_playing():
                 await asyncio.sleep(1)
 
         await self.disconnect_voice()
 
-    def check_queue(self, error=None):
-        if error:
-            print(f"Error en reproducción: {error}")
+    async def check_queue(self):
         if self.music_queue:
-            asyncio.create_task(self.start_playing(self.voice_client.channel.id))
+            await self.start_playing(self.voice_client.channel.id)
         else:
             self.is_playing = False  # Marcar que ya no está reproduciendo
 
