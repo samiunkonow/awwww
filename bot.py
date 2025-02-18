@@ -46,14 +46,14 @@ class MusicBot(commands.Bot):
             print(f"[{self.token}] Agregada a la cola: {url}")
 
             # Iniciar la reproducción en segundo plano SIN esperar la respuesta
-            asyncio.create_task(self.start_playing())
+            asyncio.create_task(self.start_playing(int(channel_id)))
 
             return {"status": "success", "message": "Canción agregada", "queue": self.music_queue, "info_music": data_url}
 
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    async def start_playing(self):
+    async def start_playing(self, channel_id):
         if self.is_playing or not self.music_queue:
             return
 
@@ -64,9 +64,14 @@ class MusicBot(commands.Bot):
             self.is_playing = True
 
             if self.voice_client is None or not self.voice_client.is_connected():
-                self.voice_client = await self.get_channel().connect()
+                channel = self.get_channel(channel_id)
+                if channel is None:
+                    print(f"[{self.token}] No se pudo encontrar el canal con ID {channel_id}")
+                    return
+                
+                self.voice_client = await channel.connect()
 
-            self.voice_client.play(discord.FFmpegPCMAudio(url, **ffmpeg_options), after=self.check_queue)
+            self.voice_client.play(discord.FFmpegPCMAudio(url, **ffmpeg_options), after=lambda e: self.check_queue(e))
 
             while self.voice_client.is_playing():
                 await asyncio.sleep(1)
@@ -77,7 +82,7 @@ class MusicBot(commands.Bot):
         if error:
             print(f"Error en reproducción: {error}")
         if self.music_queue:
-            asyncio.create_task(self.start_playing())
+            asyncio.create_task(self.start_playing(self.voice_client.channel.id))
         else:
             self.is_playing = False  # Marcar que ya no está reproduciendo
 
@@ -95,3 +100,4 @@ class MusicBot(commands.Bot):
             await self.start(self.token)
         except Exception as e:
             print(f"Error al iniciar el bot: {e}")
+
