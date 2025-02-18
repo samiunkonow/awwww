@@ -28,11 +28,11 @@ class MusicBot(commands.Bot):
             print(f"[{self.token}] Buscando audio para: {query}")
             guild = self.get_guild(int(guild_id))
             if not guild:
-                return {"status": "error", "message": f"El bot no está en el servidor {guild_id}."}
+                return {"status": 401, "message": f"El bot no está en el servidor {guild_id}."}
 
             member = guild.get_member(int(user_id))
             if not member or not member.voice or member.voice.channel.id != int(channel_id):
-                return {"status": "error", "message": f"El usuario {user_id} no está en el canal de voz correcto."}
+                return {"status": 402, "message": f"El usuario {user_id} no está en el canal de voz correcto."}
 
             extract = search_youtube(query)
             results = YoutubeSearch(extract, max_results=1).to_json()
@@ -40,7 +40,7 @@ class MusicBot(commands.Bot):
 
             url = get_youtube_audio_url(extract)
             if not url:
-                return {"status": "error", "message": "No se pudo obtener la URL del audio."}
+                return {"status": 403, "message": "No se pudo obtener la URL del audio."}
 
             self.music_queue.append(url)
             print(f"[{self.token}] Agregada a la cola: {url}")
@@ -48,7 +48,7 @@ class MusicBot(commands.Bot):
             # Iniciar la reproducción en segundo plano SIN esperar la respuesta
             asyncio.create_task(self.start_playing(int(channel_id)))
 
-            return {"status": "success", "message": "Canción agregada", "queue": self.music_queue, "info_music": data_url}
+            return {"status": 200, "message": "Canción agregada", "queue": self.music_queue, "info_music": data_url}
 
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -100,4 +100,3 @@ class MusicBot(commands.Bot):
             await self.start(self.token)
         except Exception as e:
             print(f"Error al iniciar el bot: {e}")
-
