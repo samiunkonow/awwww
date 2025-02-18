@@ -1,0 +1,13 @@
+discord.py
+ffmpeg-python
+python-dotenv
+yt-dlp
+aiohttp
+pydantic
+fastapi
+youtube-search
+uvicorn
+ffmpeg-python
+pydub
+PyNaCl
+asyncio
