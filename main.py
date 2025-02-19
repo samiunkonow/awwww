@@ -13,6 +13,10 @@ class MusicRequest(BaseModel):
     guild_id: str
     query: str
 
+class TokenPost(BaseModel):
+    token_bot: str
+
+
 @app.post("/play-music")
 async def play_music(request: MusicRequest):
     if request.token not in bots:
@@ -25,27 +29,27 @@ async def play_music(request: MusicRequest):
     return result
 
 @app.post("/pause-music")
-async def pause_music(token: str):
+async def pause_music(token: TokenPost):
     if token in bots:
         return await bots[token].pause_music()
     return {"status": 404, "message": "Bot no encontrado."}
 
 @app.post("/resume-music")
-async def resume_music(token: str):
+async def resume_music(token: TokenPost):
     if token in bots:
-        return await bots[token].resume_music()
+        return await bots[token.token_bot].resume_music()
     return {"status": 404, "message": "Bot no encontrado."}
 
 @app.post("/skip-music")
-async def skip_music(token: str):
+async def skip_music(token: TokenPost):
     if token in bots:
-        return await bots[token].skip_music()
+        return await bots[token.token_bot].skip_music()
     return {"status": 404, "message": "Bot no encontrado."}
 
 @app.post("/queue")
 async def get_queue(token: str):
     if token in bots:
-        return await bots[token].get_queue()
+        return await bots[token.token_bot].get_queue()
     return {"status": 404, "message": "Bot no encontrado."}
 
 if __name__ == "__main__":
