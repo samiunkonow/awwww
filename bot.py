@@ -6,62 +6,62 @@ from MusicaBot.audio import get_youtube_audio_url
 from youtube_search import YoutubeSearch
 import json
 
-bots = {}  # Diccionario global para manejar los bots
+bots = {}
 
 class MusicBot(commands.Bot):
     def __init__(self, token):
         super().__init__(command_prefix="!", intents=discord.Intents().all())
         self.token = token
         self.voice_client = None
-        self.music_queue = []  # Cola de reproducción
-        self.is_playing = False  # Estado de reproducción
-        self.ready_event = asyncio.Event()  # Para verificar si el bot está listo
+        self.music_queue = []
+        self.is_playing = False
+        self.is_paused = False
+        self.ready_event = asyncio.Event()
 
     async def on_ready(self):
         print(f"[{self.token}] Bot conectado y listo.")
-        self.ready_event.set()  # Marcar el bot como listo
+        self.ready_event.set()
 
     async def play_music(self, user_id, channel_id, guild_id, query):
-        try:
-            await self.ready_event.wait()  # Esperar a que el bot esté listo
+        await self.ready_event.wait()
 
-            print(f"[{self.token}] Buscando audio para: {query}")
-            guild = self.get_guild(int(guild_id))
-            if not guild:
-                return {"status": 401, "message": f"El bot no está en el servidor {guild_id}."}
+        guild = self.get_guild(int(guild_id))
+        if not guild:
+            return {"status": 401, "message": f"El bot no está en el servidor {guild_id}."}
 
-            member = guild.get_member(int(user_id))
-            if not member or not member.voice or member.voice.channel.id != int(channel_id):
-                return {"status": 402, "message": f"El usuario {user_id} no está en el canal de voz correcto."}
+        member = guild.get_member(int(user_id))
+        if not member or not member.voice or member.voice.channel.id != int(channel_id):
+            return {"status": 402, "message": f"El usuario {user_id} no está en el canal de voz correcto."}
 
-            extract = search_youtube(query)
-            results = YoutubeSearch(extract, max_results=1).to_json()
-            data_url = json.loads(results)
+        extract = search_youtube(query)
+        results = YoutubeSearch(extract, max_results=1).to_json()
+        data_url = json.loads(results)
 
-            url = get_youtube_audio_url(extract)
-            if not url:
-                return {"status": 403, "message": "No se pudo obtener la URL del audio."}
+        if "videos" in data_url and len(data_url["videos"]) > 0:
+            video = data_url["videos"][0]
+            title = video["title"]
+            video_url = f"https://www.youtube.com/watch?v={video['id']}"
 
-            self.music_queue.append(url)
-            print(f"[{self.token}] Agregada a la cola: {url}")
+            self.music_queue.append({"title": title, "url": video_url})
 
-            # Iniciar la reproducción en segundo plano SIN esperar la respuesta
-            asyncio.create_task(self.start_playing(int(channel_id)))
+            if not self.is_playing and not self.is_paused:
+                asyncio.create_task(self.start_playing(int(channel_id)))
 
             return {"status": 200, "message": "Canción agregada", "queue": self.music_queue, "info_music": data_url}
 
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
+        return {"status": 403, "message": "No se encontraron resultados."}
 
     async def start_playing(self, channel_id):
         if self.is_playing or not self.music_queue:
             return
 
         while self.music_queue:
-            url = self.music_queue.pop(0)
-
+            query = self.music_queue.pop(0)
+            url = get_youtube_audio_url(query["url"])
             ffmpeg_options = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
+
             self.is_playing = True
+            self.is_paused = False
 
             if self.voice_client is None or not self.voice_client.is_connected():
                 channel = self.get_channel(channel_id)
@@ -71,34 +71,57 @@ class MusicBot(commands.Bot):
                 
                 self.voice_client = await channel.connect()
 
-            def after_playing(error):
-                if error:
-                    print(f"Error en reproducción: {error}")
-                asyncio.create_task(self.check_queue())
+            self.voice_client.play(discord.FFmpegPCMAudio(url, **ffmpeg_options), after=lambda e: self.check_queue())
 
-            self.voice_client.play(discord.FFmpegPCMAudio(url, **ffmpeg_options), after=after_playing)
-
-            while self.voice_client.is_playing():
+            while self.voice_client.is_playing() or self.is_paused:
                 await asyncio.sleep(1)
 
-        await self.disconnect_voice()
+        if not self.is_paused:
+            await self.disconnect_voice()
 
-    async def check_queue(self):
+    def check_queue(self):
         if self.music_queue:
-            await self.start_playing(self.voice_client.channel.id)
+            asyncio.create_task(self.start_playing(self.voice_client.channel.id))
         else:
-            self.is_playing = False  # Marcar que ya no está reproduciendo
+            self.is_playing = False
 
     async def disconnect_voice(self):
-        """Desconecta el bot del canal de voz pero NO lo apaga completamente"""
-        if self.voice_client:
+        if self.voice_client and not self.is_paused:
             await self.voice_client.disconnect()
             self.voice_client = None
-        self.is_playing = False
-        print(f"[{self.token}] Bot desconectado del canal de voz, listo para nueva música.")
+            self.is_playing = False
+            print(f"[{self.token}] Bot desconectado del canal de voz.")
+
+    async def pause_music(self):
+        if self.voice_client and self.voice_client.is_playing():
+            self.voice_client.pause()
+            self.is_paused = True
+            self.is_playing = False  # Se detiene la reproducción pero no se desconecta
+            return {"status": 200, "message": "Música pausada."}
+        return {"status": 404, "message": "No hay música reproduciéndose."}
+
+    async def resume_music(self):
+        if self.voice_client and self.is_paused:
+            self.voice_client.resume()
+            self.is_paused = False
+            self.is_playing = True
+            return {"status": 200, "message": "Música reanudada."}
+        return {"status": 404, "message": "No hay música pausada."}
+
+    async def skip_music(self):
+        if self.voice_client and self.voice_client.is_playing():
+            self.voice_client.stop()
+            return {"status": 200, "message": "Saltando a la siguiente canción."}
+        return {"status": 404, "message": "No hay música reproduciéndose."}
+
+    async def get_queue(self):
+        if not self.music_queue:
+            return {"status": 404, "message": "La cola está vacía."}
+
+        queue_list = [f"[{song['title']}]({song['url']})" for song in self.music_queue]
+        return {"status": 200, "queue": queue_list}
 
     async def start_bot(self):
-        """Ejecuta el bot en segundo plano sin bloquear"""
         try:
             await self.start(self.token)
         except Exception as e:
