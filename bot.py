@@ -34,7 +34,9 @@ class MusicBot(commands.Bot):
             return {"status": 402, "message": f"El usuario {user_id} no está en el canal de voz correcto."}
 
         extract = search_youtube(query)
+        print("extract: ", extract)
         results = YoutubeSearch(extract, max_results=1).to_json()
+        print("results: ", results)
         data_url = json.loads(results)
 
         if "videos" in data_url and len(data_url["videos"]) > 0:
