@@ -16,6 +16,7 @@ class MusicBot(commands.Bot):
         self.music_queue = []
         self.is_playing = False
         self.is_paused = False
+        self.loop_queue = False
         self.ready_event = asyncio.Event()
 
     async def on_ready(self):
@@ -33,18 +34,17 @@ class MusicBot(commands.Bot):
         if not member or not member.voice or member.voice.channel.id != int(channel_id):
             return {"status": 402, "message": f"El usuario {user_id} no está en el canal de voz correcto."}
 
-        extract = str(search_youtube(query))
-        
+        extract = search_youtube(query)
         results = YoutubeSearch(extract, max_results=1).to_json()
-        
         data_url = json.loads(results)
 
         if "videos" in data_url and len(data_url["videos"]) > 0:
             video = data_url["videos"][0]
             title = video["title"]
+            duration = video["duration"]
             video_url = f"https://www.youtube.com/watch?v={video['id']}"
 
-            self.music_queue.append({"title": title, "url": video_url})
+            self.music_queue.append({"title": title, "url": video_url, "duration": duration})
 
             if not self.is_playing and not self.is_paused:
                 asyncio.create_task(self.start_playing(int(channel_id)))
@@ -58,7 +58,7 @@ class MusicBot(commands.Bot):
             return
 
         while self.music_queue:
-            query = self.music_queue.pop(0)
+            query = self.music_queue[0]
             url = get_youtube_audio_url(query["url"])
             ffmpeg_options = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 
@@ -83,9 +83,19 @@ class MusicBot(commands.Bot):
 
     def check_queue(self):
         if self.music_queue:
+            if self.loop_queue:
+                self.music_queue.append(self.music_queue.pop(0))  # Mueve la canción al final
+            else:
+                self.music_queue.pop(0)  # Elimina la canción si no hay loop
+
             asyncio.create_task(self.start_playing(self.voice_client.channel.id))
         else:
             self.is_playing = False
+    
+
+    async def set_loop_queue(self, enable: bool):
+        self.loop_queue = enable
+        return {"status": 200, "message": f"Loop del queue {'activado' if enable else 'desactivado'}."}
 
     async def disconnect_voice(self):
         if self.voice_client and not self.is_paused:
@@ -116,12 +126,60 @@ class MusicBot(commands.Bot):
             return {"status": 200, "message": "Saltando a la siguiente canción."}
         return {"status": 404, "message": "No hay música reproduciéndose."}
 
-    async def get_queue(self):
+    async def get_queue(self, page: int = 1):
         if not self.music_queue:
             return {"status": 404, "message": "La cola está vacía."}
 
-        queue_list = [f"[{song['title']}]({song['url']})" for song in self.music_queue]
-        return {"status": 200, "queue": queue_list}
+        items_per_page = 10
+        total_pages = (len(self.music_queue) + items_per_page - 1) // items_per_page
+
+        if page < 1 or page > total_pages:
+            return {"status": 400, "message": f"Página inválida. Elige entre 1 y {total_pages}."}
+
+        start_idx = (page - 1) * items_per_page
+        end_idx = start_idx + items_per_page
+        queue_list = [
+            {"position": i + 1, "title": song["title"], "url": song["url"], "time": song["duration"]}
+            for i, song in enumerate(self.music_queue[start_idx:end_idx], start=start_idx)
+        ]
+
+        return {
+            "status": 200,
+            "queue": queue_list,
+            "current_page": page,
+            "total_pages": total_pages
+        }
+    
+    async def move_queue(self, old_position: int, new_position: int):
+        """Mueve una canción de una posición a otra en la cola"""
+        if old_position < 1 or old_position > len(self.music_queue):
+            return {"status": 400, "message": "Posición inválida en la cola."}
+
+        if new_position < 1 or new_position > len(self.music_queue):
+            return {"status": 400, "message": "Nueva posición inválida en la cola."}
+
+        song = self.music_queue.pop(old_position - 1)  # Quitamos la canción de la posición original
+        self.music_queue.insert(new_position - 1, song)  # Insertamos en la nueva posición
+
+        return {
+            "status": 200,
+            "message": f"La canción '{song['title']}' ha sido movida a la posición {new_position}.",
+            "queue": self.music_queue
+        }
+
+    async def remove_queue(self, position: int):
+        """Elimina una canción de la cola según su posición"""
+        if position < 1 or position > len(self.music_queue):
+            return {"status": 400, "message": "Posición inválida en la cola."}
+
+        removed_song = self.music_queue.pop(position - 1)  # Eliminamos la canción de la cola
+        return {
+            "status": 200,
+            "message": f"La canción '{removed_song['title']}' ha sido eliminada de la cola.",
+            "queue": self.music_queue
+        }
+    
+    
 
     async def start_bot(self):
         try:
