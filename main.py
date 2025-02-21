@@ -13,8 +13,15 @@ class MusicRequest(BaseModel):
     guild_id: str
     query: str
 
-class TokenPost(BaseModel):
-    token_bot: str
+class MoveQueueRequest(BaseModel):
+    token: str
+    old_position: int
+    new_position: int
+
+class RemoveQueueRequest(BaseModel):
+    token: str
+    position: int
+
 
 @app.post("/play-music")
 async def play_music(request: MusicRequest):
@@ -28,28 +35,50 @@ async def play_music(request: MusicRequest):
     return result
 
 @app.post("/pause-music")
-async def pause_music(token: TokenPost):
-    if token.token_bot in bots:
-        return await bots[token.token_bot].pause_music()
+async def pause_music(token: str):
+    if token in bots:
+        return await bots[token].pause_music()
     return {"status": 404, "message": "Bot no encontrado."}
 
 @app.post("/resume-music")
-async def resume_music(token: TokenPost):
-    if token.token_bot in bots:
-        return await bots[token.token_bot].resume_music()
+async def resume_music(token: str):
+    if token in bots:
+        return await bots[token].resume_music()
     return {"status": 404, "message": "Bot no encontrado."}
 
 @app.post("/skip-music")
-async def skip_music(token: TokenPost):
-    if token.token_bot in bots:
-        return await bots[token.token_bot].skip_music()
+async def skip_music(token: str):
+    if token in bots:
+        return await bots[token].skip_music()
     return {"status": 404, "message": "Bot no encontrado."}
 
 @app.get("/queue")
-async def get_queue(token: str):
+async def get_queue(token: str, page: int = 1):
     if token in bots:
-        return await bots[token].get_queue()
+        return await bots[token].get_queue(page)
     return {"status": 404, "message": "Bot no encontrado."}
+
+
+@app.post("/move-queue")
+async def move_queue(request: MoveQueueRequest):
+    if request.token in bots:
+        return await bots[request.token].move_queue(request.old_position, request.new_position)
+    return {"status": 404, "message": "Bot no encontrado."}
+
+@app.post("/remove-queue")
+async def remove_queue(request: RemoveQueueRequest):
+    if request.token in bots:
+        return await bots[request.token].remove_queue(request.position)
+    return {"status": 404, "message": "Bot no encontrado."}
+
+
+@app.get("/loop-queue")
+async def loop_queue(token: str, enable: bool):
+    if token in bots:
+        return await bots[token].set_loop_queue(enable)
+    return {"status": 404, "message": "Bot no encontrado."}
+
+
 
 if __name__ == "__main__":
     import uvicorn
